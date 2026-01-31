@@ -6,7 +6,7 @@ feature, which applies to all devices connected to the VPN.
 Environment Variables Required:
     CLOUDCONNEXA_CLIENT_ID: OAuth2 client ID from CloudConnexa admin portal
     CLOUDCONNEXA_CLIENT_SECRET: OAuth2 client secret
-    CLOUDCONNEXA_REGION: API region (default: "api.openvpn.com")
+    CLOUDCONNEXA_ORG: Your organization name (e.g., "mindfulmakers")
 """
 
 import asyncio
@@ -51,21 +51,6 @@ def unblock_website(domain: str) -> str:
 
 
 @function_tool
-def list_blocked_websites() -> str:
-    """List all currently blocked websites in CloudConnexa Cyber Shield.
-
-    Returns:
-        A formatted list of blocked domains, or a message if none are blocked.
-    """
-    success, blocked, error = cloudconnexa_manager.get_blocked_domains()
-    if not success:
-        return f"Failed to retrieve blocked websites: {error}"
-    if not blocked:
-        return "No websites are currently blocked."
-    return "Currently blocked websites:\n" + "\n".join(f"  - {d}" for d in blocked)
-
-
-@function_tool
 def check_vpn_connection() -> str:
     """Check if the CloudConnexa API connection is working.
 
@@ -83,8 +68,9 @@ agent = Agent(
 You can help users:
 - Block websites to improve focus and productivity across ALL their VPN-connected devices
 - Unblock websites when needed
-- View the list of currently blocked websites
 - Check the VPN API connection status
+
+Note: The CloudConnexa API does not support listing currently blocked websites.
 
 When blocking or unblocking websites, explain that:
 1. Changes apply to ALL devices connected to the CloudConnexa VPN
@@ -94,7 +80,7 @@ When blocking or unblocking websites, explain that:
 
 Always confirm actions with the user before making changes.
 Be helpful and supportive about productivity goals while respecting the user's autonomy.""",
-    tools=[block_website, unblock_website, list_blocked_websites, check_vpn_connection],
+    tools=[block_website, unblock_website, check_vpn_connection],
 )
 
 
@@ -113,7 +99,9 @@ async def main():
         print("[Connected to CloudConnexa]\n")
     else:
         print(f"[Warning: {message}]\n")
-        print("Set CLOUDCONNEXA_CLIENT_ID and CLOUDCONNEXA_CLIENT_SECRET to connect.\n")
+        print(
+            "Set CLOUDCONNEXA_ORG, CLOUDCONNEXA_CLIENT_ID, and CLOUDCONNEXA_CLIENT_SECRET to connect.\n"
+        )
 
     conversation_history = []
 

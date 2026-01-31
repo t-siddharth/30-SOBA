@@ -113,4 +113,6 @@ Users can:
 
 ## VPN
 
-*Coming soon*
+A Python agent that blocks websites across all devices via CloudConnexa (OpenVPN Cloud) DNS filtering.
+
+See [vpn/README.md](vpn/README.md) for setup instructions.
