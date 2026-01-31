@@ -1,9 +1,8 @@
 import os
 
-import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from openai import AsyncOpenAI
 
 app = FastAPI()
 
@@ -16,10 +15,6 @@ app.add_middleware(
 )
 
 
-class EphemeralKeyResponse(BaseModel):
-    client_secret: dict
-
-
 @app.post("/session")
 async def create_session():
     """Create an OpenAI Realtime API ephemeral key."""
@@ -27,23 +22,21 @@ async def create_session():
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "https://api.openai.com/v1/realtime/sessions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "gpt-4o-realtime-preview-2024-12-17",
-                "voice": "verse",
+    client = AsyncOpenAI(api_key=api_key)
+
+    try:
+        response = await client.realtime.client_secrets.create(
+            expires_after={"anchor": "created_at", "seconds": 600},
+            session={
+                "type": "realtime",
+                "model": "gpt-4o-realtime-preview",
             },
         )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"OpenAI API error: {response.text}",
-            )
-
-        return response.json()
+        # Return in format iOS app expects
+        return {
+            "client_secret": {
+                "value": response.value,
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(e)}")

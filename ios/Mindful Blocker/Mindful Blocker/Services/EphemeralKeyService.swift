@@ -30,6 +30,8 @@ actor EphemeralKeyService {
     }
 
     func fetchEphemeralKey() async throws -> String {
+        print("[EphemeralKeyService] Fetching from: \(serverURL)")
+
         var request = URLRequest(url: serverURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -37,18 +39,35 @@ actor EphemeralKeyService {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
 
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("[EphemeralKeyService] Invalid response type")
                 throw EphemeralKeyError.invalidResponse
             }
 
+            print("[EphemeralKeyService] Response status: \(httpResponse.statusCode)")
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                print("[EphemeralKeyService] Bad status code: \(httpResponse.statusCode)")
+                if let responseBody = String(data: data, encoding: .utf8) {
+                    print("[EphemeralKeyService] Response body: \(responseBody)")
+                }
+                throw EphemeralKeyError.invalidResponse
+            }
+
+            if let responseBody = String(data: data, encoding: .utf8) {
+                print("[EphemeralKeyService] Response: \(responseBody.prefix(200))...")
+            }
+
             let sessionResponse = try JSONDecoder().decode(SessionResponse.self, from: data)
+            print("[EphemeralKeyService] Successfully decoded ephemeral key")
             return sessionResponse.client_secret.value
         } catch let error as EphemeralKeyError {
             throw error
         } catch let error as DecodingError {
+            print("[EphemeralKeyService] Decoding error: \(error)")
             throw EphemeralKeyError.decodingError(error)
         } catch {
+            print("[EphemeralKeyService] Network error: \(error)")
             throw EphemeralKeyError.networkError(error)
         }
     }
