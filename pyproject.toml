@@ -1,0 +1,9 @@
+[project]
+name = "mindful-makers-blocking-examples"
+version = "0.1.0"
+description = "Examples of blocking tools for the Mindful Makers hackathon"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "openai-agents>=0.7.0",
+]
