@@ -6,80 +6,11 @@
 import SwiftUI
 import RealtimeAPI
 
-// Debug: Intercept all URL requests to log OpenAI responses
-class DebugURLProtocol: URLProtocol {
-    static var isRegistered = false
-    static let handledKey = "DebugURLProtocolHandled"
-
-    // Use a session without the protocol to avoid infinite loop
-    static let plainSession: URLSession = {
-        let config = URLSessionConfiguration.default
-        return URLSession(configuration: config)
-    }()
-
-    static func register() {
-        guard !isRegistered else { return }
-        URLProtocol.registerClass(DebugURLProtocol.self)
-        isRegistered = true
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        // Skip if already handled
-        if URLProtocol.property(forKey: handledKey, in: request) != nil {
-            return false
-        }
-        // Only intercept OpenAI realtime calls
-        return request.url?.host == "api.openai.com" && request.url?.path.contains("realtime") == true
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        return request
-    }
-
-    override func startLoading() {
-        print("[DEBUG URLProtocol] Intercepted request to: \(request.url?.absoluteString ?? "nil")")
-        if let body = request.httpBody, let bodyStr = String(data: body, encoding: .utf8) {
-            print("[DEBUG URLProtocol] Request body (first 500 chars): \(String(bodyStr.prefix(500)))")
-        }
-
-        // Mark as handled
-        let mutableRequest = (request as NSURLRequest).mutableCopy() as! NSMutableURLRequest
-        URLProtocol.setProperty(true, forKey: Self.handledKey, in: mutableRequest)
-
-        let task = Self.plainSession.dataTask(with: mutableRequest as URLRequest) { data, response, error in
-            if let error = error {
-                print("[DEBUG URLProtocol] Error: \(error)")
-                self.client?.urlProtocol(self, didFailWithError: error)
-                return
-            }
-
-            if let httpResponse = response as? HTTPURLResponse {
-                print("[DEBUG URLProtocol] Response status: \(httpResponse.statusCode)")
-            }
-
-            if let data = data, let bodyStr = String(data: data, encoding: .utf8) {
-                print("[DEBUG URLProtocol] Response body: \(bodyStr)")
-            }
-
-            if let response = response {
-                self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            }
-            if let data = data {
-                self.client?.urlProtocol(self, didLoad: data)
-            }
-            self.client?.urlProtocolDidFinishLoading(self)
-        }
-        task.resume()
-    }
-
-    override func stopLoading() {}
-}
-
 struct ChatView: View {
     var screenTimeManager: ScreenTimeManager
     var appBlockingState: AppBlockingState
 
-    @State private var conversation = Conversation(debug: true)
+    @State private var conversation = Conversation()
     @State private var inputText = ""
     @State private var isConnecting = false
     @State private var connectionError: String?
@@ -141,7 +72,7 @@ struct ChatView: View {
                 AppPickerSheet(appBlockingState: appBlockingState)
             }
             .sheet(isPresented: $showingSettings) {
-                SettingsView(screenTimeManager: screenTimeManager)
+                SettingsView(screenTimeManager: screenTimeManager, appBlockingState: appBlockingState)
             }
             .task {
                 await connect()
@@ -206,19 +137,12 @@ struct ChatView: View {
         connectionError = nil
 
         do {
-            // Register debug interceptor to log all OpenAI requests/responses
-            DebugURLProtocol.register()
-
-            print("[ChatView] Fetching ephemeral key...")
             let ephemeralKey = try await ephemeralKeyService.fetchEphemeralKey()
-            print("[ChatView] Got ephemeral key, connecting to OpenAI...")
 
             // Model must match what the server uses when creating the ephemeral key
             try await conversation.connect(ephemeralKey: ephemeralKey, model: .custom("gpt-4o-realtime-preview"))
-            print("[ChatView] Connected, waiting for session...")
 
             try await conversation.whenConnected {
-                print("[ChatView] Session ready, updating configuration...")
                 try await conversation.updateSession { session in
                     session.instructions = """
                     You are a mindful assistant helping users manage their screen time and app usage.
@@ -230,17 +154,12 @@ struct ChatView: View {
                     """
                     session.tools = BlockingTools.allTools
                 }
+                print("[Session] Tools registered: \(BlockingTools.allTools.count)")
             }
 
-            print("[ChatView] Successfully connected and configured!")
             isConnecting = false
         } catch {
             isConnecting = false
-            print("[ChatView] Connection error: \(error)")
-            print("[ChatView] Error type: \(type(of: error))")
-            if let underlyingError = (error as NSError).userInfo[NSUnderlyingErrorKey] as? Error {
-                print("[ChatView] Underlying error: \(underlyingError)")
-            }
             connectionError = String(describing: error)
         }
     }
@@ -251,27 +170,51 @@ struct ChatView: View {
 
         inputText = ""
 
-        do {
-            try conversation.send(from: .user, text: text)
-        } catch {
-            print("Failed to send message: \(error)")
-        }
+        try? conversation.send(from: .user, text: text)
     }
 
     private func handleFunctionCalls(entries: [Item]) {
+        print("[Entries] Count: \(entries.count), types: \(entries.map { String(describing: type(of: $0)) })")
+
         for entry in entries {
-            guard case let .functionCall(functionCall) = entry,
-                  functionCall.status == .completed,
+            switch entry {
+            case .message(let msg):
+                print("[Entry] Message from \(msg.role)")
+            case .functionCall(let fc):
+                print("[Entry] FunctionCall: \(fc.name), status: \(fc.status)")
+            case .functionCallOutput(let fco):
+                print("[Entry] FunctionCallOutput: \(fco.callId)")
+            case .mcpToolCall(_):
+                print("HELLO")
+            case .mcpApprovalRequest(_):
+                print("HELLO")
+            case .mcpApprovalResponse(_):
+                print("HELLO")
+            case .mcpListTools(_):
+                print("HELLO")
+            }
+        }
+
+        for entry in entries {
+            guard case let .functionCall(functionCall) = entry else {
+                continue
+            }
+
+            print("[Tool] Function call: \(functionCall.name), status: \(functionCall.status), args: \(functionCall.arguments)")
+
+            guard functionCall.status == .completed,
                   !processedFunctionCallIds.contains(functionCall.callId) else {
                 continue
             }
 
             processedFunctionCallIds.insert(functionCall.callId)
 
+            print("[Tool] Executing: \(functionCall.name)")
             let result = toolHandler.execute(
                 functionName: functionCall.name,
                 arguments: functionCall.arguments
             )
+            print("[Tool] Result: \(result)")
 
             do {
                 let output = Item.FunctionCallOutput(
@@ -281,8 +224,9 @@ struct ChatView: View {
                 )
                 try conversation.send(result: output)
                 try conversation.send(event: .createResponse())
+                print("[Tool] Sent result to conversation")
             } catch {
-                print("Failed to send function result: \(error)")
+                print("[Tool] Failed to send function result: \(error)")
             }
         }
     }
