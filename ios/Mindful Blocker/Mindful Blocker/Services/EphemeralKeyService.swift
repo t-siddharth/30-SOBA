@@ -6,7 +6,15 @@
 import Foundation
 
 actor EphemeralKeyService {
-    private let serverURL = URL(string: "http://localhost:8000/session")!
+    // MARK: - Configuration
+    // Change this to your Mac's local IP address (e.g., "192.168.1.100")
+    // Find your IP by running: ipconfig getifaddr en0
+    private static let serverHost = "192.168.0.52"
+    private static let serverPort = "8000"
+
+    private var serverURL: URL {
+        URL(string: "http://\(Self.serverHost):\(Self.serverPort)/session")!
+    }
 
     struct SessionResponse: Decodable {
         struct ClientSecret: Decodable {

@@ -141,7 +141,7 @@ struct ChatView: View {
             try await conversation.connect(ephemeralKey: ephemeralKey)
 
             try await conversation.whenConnected {
-                try conversation.updateSession { session in
+                try await conversation.updateSession { session in
                     session.instructions = """
                     You are a mindful assistant helping users manage their screen time and app usage.
                     You can help users block and unblock apps on their device.
