@@ -219,3 +219,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# OpenAI API Key
+ios/SimpleChatbot/Secrets.swift
